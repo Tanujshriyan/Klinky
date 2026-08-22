@@ -120,4 +120,9 @@ def presign_upload(body: PresignUploadRequest, user_id: str = CurrentUserId):
 
 @router.post("/moderation/scan")
 def scan_media(body: dict, _user_id: str = CurrentUserId):
-    return store.scan_media(body.get("fileName", ""))
+    return store.scan_media(
+        body.get("fileName", ""),
+        content_type=body.get("contentType"),
+        file_size=body.get("fileSizeBytes"),
+        kind=body.get("kind"),
+    )

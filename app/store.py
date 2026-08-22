@@ -63,6 +63,30 @@ ALLOWED_IMAGE_MIMES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 ALLOWED_VIDEO_MIMES = {"video/mp4", "video/quicktime", "video/x-m4v"}
 MIN_PASSWORD_LENGTH = 8
 AUDIT_LOG_MAX_ENTRIES = 500
+MAX_MESSAGES_PER_CONVERSATION = 100
+MAX_PROFILE_VIEWS = 200
+MAX_PROFILE_LIKES = 200
+MAX_NOTIFICATIONS = 80
+MAX_REPORTS = 50
+
+
+def _cap_mutable_list(items: list, max_size: int) -> None:
+    if len(items) > max_size:
+        del items[: len(items) - max_size]
+
+
+def _trim_conversation_messages(
+    messages: list[Message],
+    conversation_id: str,
+    max_size: int = MAX_MESSAGES_PER_CONVERSATION,
+) -> None:
+    kept = 0
+    for i in range(len(messages) - 1, -1, -1):
+        if messages[i].conversationId != conversation_id:
+            continue
+        kept += 1
+        if kept > max_size:
+            messages.pop(i)
 
 
 def _age_from_birth_date(birth_date: str) -> int:
@@ -968,7 +992,7 @@ class DataStore:
         return [
             self._to_list_user(self._apply_distance(self.users[uid]))
             for uid in self.favorite_ids
-            if uid in self.users and uid not in self.blocked_ids
+            if uid in self.users and not self._is_blocked_either_way(uid)
         ]
 
     def is_favorite(self, user_id: str) -> bool:
@@ -995,7 +1019,7 @@ class DataStore:
         items = []
         for user_id, at in user_ids_with_at:
             user = self.users.get(user_id)
-            if user and user_id not in self.blocked_ids:
+            if user and not self._is_blocked_either_way(user_id):
                 items.append(ProfileActivityItem(user=self._to_list_user(self._apply_distance(user)), at=at))
         return sorted(items, key=lambda i: i.at, reverse=True)
 
@@ -1466,6 +1490,7 @@ class DataStore:
             eventId=input.eventId,
         )
         self.notifications.insert(0, item)
+        _cap_mutable_list(self.notifications, MAX_NOTIFICATIONS)
         return item
 
     def mark_notification_read(self, notification_id: str) -> None:

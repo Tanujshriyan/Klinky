@@ -7,6 +7,7 @@ from fastapi import WebSocket
 from starlette.websockets import WebSocketDisconnect
 
 from app.auth import decode_token
+from app.errors import ApiError
 from app.models import Message, new_id
 from app.store import store
 from app.ws_tickets import resolve_ws_ticket
@@ -59,7 +60,7 @@ class ChatConnectionManager:
             if not conversation_id or not _is_conversation_member(user_id, conversation_id):
                 await websocket.send_json({"type": "error", "code": "FORBIDDEN", "message": "Not a conversation member."})
                 return
-            await self._handle_send(user_id, event)
+            await self._handle_send(websocket, user_id, event)
             return
         if event_type == "typing.start":
             conversation_id = event.get("conversationId")
@@ -113,7 +114,17 @@ class ChatConnectionManager:
                 await self._broadcast_to_conversation(conversation_id, payload)
             return
 
-    async def _handle_send(self, user_id: str, event: dict) -> None:
+    async def _handle_send(self, websocket: WebSocket, user_id: str, event: dict) -> None:
+        conversation_id = event.get("conversationId", "")
+        if store._conversation_has_block(conversation_id):
+            await websocket.send_json(
+                {
+                    "type": "error",
+                    "code": "API_006",
+                    "message": "You do not have permission for this action.",
+                }
+            )
+            return
         client_id = event.get("clientId", new_id("client"))
         existing = store.find_message_by_client_id(client_id)
         if existing:
@@ -121,7 +132,7 @@ class ChatConnectionManager:
         else:
             message = Message(
                 id=new_id("msg"),
-                conversationId=event["conversationId"],
+                conversationId=conversation_id,
                 senderId=user_id,
                 body=event.get("body", ""),
                 createdAt=datetime.now(timezone.utc).isoformat(),
@@ -133,11 +144,15 @@ class ChatConnectionManager:
                 viewOnce=event.get("viewOnce"),
                 viewedAt=None if event.get("viewOnce") else None,
             )
-            store.add_message(message)
+            try:
+                store.add_message(message)
+            except ApiError as exc:
+                await websocket.send_json({"type": "error", "code": exc.code, "message": exc.message})
+                return
         delivered = message.model_copy(update={"status": "delivered"})
         await self._send_to_user(user_id, {"type": "message.ack", "clientId": client_id, "message": delivered.model_dump()})
         await self._broadcast_to_conversation(
-            event["conversationId"],
+            conversation_id,
             {"type": "message.new", "message": delivered.model_dump()},
         )
 
