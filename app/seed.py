@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 from app.geo import MOCK_LOCATION, random_offset
+from app.geohash import encode_geohash
 from app.models import (
     AppNotification,
     Conversation,
@@ -73,6 +74,7 @@ def build_seed_users() -> list[User]:
                 if i == 0
                 else f"Hey, I'm {name}. Let's connect!",
                 photos=[photo_seed(user_id if j == 0 else f"{user_id}-{j + 1}") for j in range(1 + (i % 4))],
+                geohash=encode_geohash(coords["latitude"], coords["longitude"]),
                 latitude=coords["latitude"],
                 longitude=coords["longitude"],
                 lastActiveAt=(_now() - timedelta(hours=i)).isoformat(),
@@ -86,7 +88,14 @@ def build_seed_users() -> list[User]:
                 tags=[TAGS[i % len(TAGS)], TAGS[(i + 3) % len(TAGS)]],
                 kinks=[KINKS[i % len(KINKS)], KINKS[(i + 5) % len(KINKS)]],
                 albums=albums,
-                privacy=UserPrivacy(showOnMap=True, hideDistance=False, incognito=i % 17 == 0),
+                privacy=UserPrivacy(
+                    showOnMap=True,
+                    hideDistance=False,
+                    incognito=i % 17 == 0,
+                    profileVisibility="hidden" if i % 17 == 0 else "everyone",
+                    shareApproximateLocation=i % 23 != 0,
+                    showOnlineStatus=i % 11 != 0,
+                ),
                 hostingTag="Hosting" if i % 5 == 0 else ("Visiting" if i % 5 == 2 else None),
                 verified=i % 4 == 0,
                 premium=i % 7 == 0,

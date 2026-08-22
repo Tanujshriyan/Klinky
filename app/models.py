@@ -13,6 +13,9 @@ class UserPrivacy(BaseModel):
     showOnMap: bool = True
     hideDistance: bool = False
     incognito: bool = False
+    profileVisibility: Literal["everyone", "nearby", "hidden"] = "everyone"
+    shareApproximateLocation: bool = True
+    showOnlineStatus: bool = True
 
 
 class AlbumMedia(BaseModel):
@@ -27,14 +30,17 @@ class PhotoAlbum(BaseModel):
     title: str
     items: list[AlbumMedia] = Field(default_factory=list)
     nsfw: bool = False
+    locked: bool = False
 
 
 class User(BaseModel):
     id: str
     displayName: str
     age: int
+    birthDate: str | None = None
     bio: str | None = None
     photos: list[str] = Field(default_factory=list)
+    geohash: str
     latitude: float
     longitude: float
     lastActiveAt: str
@@ -49,6 +55,7 @@ class User(BaseModel):
     verified: bool | None = None
     premium: bool | None = None
     boostedUntil: str | None = None
+    pushToken: str | None = None
 
 
 class UpdateProfileInput(BaseModel):
@@ -64,6 +71,11 @@ class UpdateProfileInput(BaseModel):
     verified: bool | None = None
     latitude: float | None = None
     longitude: float | None = None
+    geohash: str | None = None
+
+
+class PushTokenInput(BaseModel):
+    token: str
 
 
 class Message(BaseModel):
@@ -117,6 +129,29 @@ class RegisterInput(BaseModel):
     password: str
     displayName: str
     age: int
+    birthDate: str | None = None
+
+
+class ConsentRecord(BaseModel):
+    type: str
+    version: str
+    acceptedAt: str
+
+
+class ConsentInput(BaseModel):
+    type: str
+    version: str = "1.0"
+
+
+DataExportStatus = Literal["pending", "processing", "completed", "failed"]
+
+
+class DataExportRequest(BaseModel):
+    id: str
+    userId: str
+    status: DataExportStatus
+    requestedAt: str
+    completedAt: str | None = None
 
 
 class LoginInput(BaseModel):
@@ -134,6 +169,9 @@ class UserSettings(BaseModel):
     showOnMap: bool = True
     hideDistance: bool = False
     incognito: bool = False
+    profileVisibility: Literal["everyone", "nearby", "hidden"] = "everyone"
+    shareApproximateLocation: bool = True
+    showOnlineStatus: bool = True
     notifyMessages: bool = True
     notifyTaps: bool = True
     notifyEvents: bool = True
@@ -176,14 +214,36 @@ class TrackTouchEventInput(BaseModel):
     metadata: dict[str, Any] | None = None
 
 
+ReportStatus = Literal["submitted", "reviewing", "action_taken", "dismissed"]
+UserModerationStatus = Literal["active", "suspended", "banned"]
+ReportReason = Literal["spam", "harassment", "inappropriate", "fake", "underage", "other"]
+ContentType = Literal["profile", "photo"]
+ContentModerationStatus = Literal["pending", "approved", "rejected", "removed"]
+AuditAction = Literal[
+    "admin_login",
+    "suspend_user",
+    "ban_user",
+    "unsuspend_user",
+    "resolve_report",
+    "approve_content",
+    "reject_content",
+    "remove_content",
+]
+
+
 class UserReport(BaseModel):
     id: str
     reportedUserId: str
+    reporterUserId: str | None = None
     conversationId: str | None = None
-    reason: str
+    reason: ReportReason
     details: str | None = None
     createdAt: str
-    status: str
+    status: ReportStatus
+    resolvedAt: str | None = None
+    resolvedBy: str | None = None
+    resolution: str | None = None
+    resolutionNote: str | None = None
 
 
 class AppNotification(BaseModel):
@@ -232,6 +292,7 @@ class PresignUploadRequest(BaseModel):
     contentType: str
     kind: Literal["image", "video"]
     folder: str | None = None
+    fileSizeBytes: int | None = None
 
 
 class PresignResponse(BaseModel):
@@ -260,3 +321,79 @@ class TokenPayload(BaseModel):
     sub: str
     email: str
     exp: datetime
+    role: Literal["user", "admin"] = "user"
+
+
+class AdminLoginInput(BaseModel):
+    email: str
+    password: str
+
+
+class AdminSession(BaseModel):
+    token: str
+    email: str
+    role: Literal["admin"] = "admin"
+
+
+class AdminUserSummary(BaseModel):
+    id: str
+    displayName: str
+    email: str | None = None
+    age: int
+    status: UserModerationStatus
+    reportCount: int
+    lastActiveAt: str
+    isOnline: bool
+    verified: bool | None = None
+    suspendedUntil: str | None = None
+    bannedAt: str | None = None
+
+
+class SuspendUserInput(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
+    durationHours: int | None = Field(default=None, ge=1, le=8760)
+
+
+class BanUserInput(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class UnsuspendUserInput(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class ResolveReportInput(BaseModel):
+    status: Literal["action_taken", "dismissed"]
+    resolution: str = Field(min_length=1, max_length=500)
+    resolutionNote: str | None = Field(default=None, max_length=2000)
+
+
+class ContentModerationItem(BaseModel):
+    id: str
+    contentType: ContentType
+    userId: str
+    userDisplayName: str
+    photoUrl: str | None = None
+    status: ContentModerationStatus
+    reportId: str | None = None
+    reason: str | None = None
+    createdAt: str
+    reviewedAt: str | None = None
+    reviewedBy: str | None = None
+
+
+class ModerateContentInput(BaseModel):
+    action: Literal["approve", "reject", "remove"]
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class AdminAuditLogEntry(BaseModel):
+    id: str
+    adminId: str
+    adminEmail: str
+    action: AuditAction
+    targetType: Literal["user", "report", "content", "auth"]
+    targetId: str
+    details: dict[str, Any] | None = None
+    createdAt: str
+    ipAddress: str | None = None

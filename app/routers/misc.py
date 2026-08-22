@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, Response
 
 from app.auth import CurrentUserId
-from app.models import CreateNotificationInput, PresignUploadRequest, TrackTouchEventInput
+from app.errors import api_error
+from app.models import PresignUploadRequest, TrackTouchEventInput
 from app.store import store
 
 router = APIRouter(tags=["misc"])
@@ -20,8 +21,9 @@ def update_settings(body: dict, _user_id: str = CurrentUserId):
 
 
 @router.post("/touch-events")
-def track_touch_event(body: TrackTouchEventInput, _user_id: str = CurrentUserId):
-    return store.track_touch_event(body)
+def track_touch_event(body: TrackTouchEventInput, user_id: str = CurrentUserId):
+    payload = body.model_copy(update={"actorUserId": user_id})
+    return store.track_touch_event(payload)
 
 
 @router.get("/favorites")
@@ -69,13 +71,19 @@ def unblock_user(user_id: str, _user_id: str = CurrentUserId):
 
 
 @router.post("/reports")
-def report_user(body: dict, _user_id: str = CurrentUserId):
-    return store.report_user(body["userId"], body["reason"], body.get("conversationId"), body.get("details"))
+def report_user(body: dict, user_id: str = CurrentUserId):
+    return store.report_user(
+        body["userId"],
+        body["reason"],
+        body.get("conversationId"),
+        body.get("details"),
+        reporter_user_id=user_id,
+    )
 
 
 @router.get("/reports")
-def get_reports(_user_id: str = CurrentUserId):
-    return store.get_reports()
+def get_reports(user_id: str = CurrentUserId):
+    return store.get_reports(reporter_user_id=user_id)
 
 
 @router.get("/notifications")
@@ -89,8 +97,8 @@ def unread_notification_count(_user_id: str = CurrentUserId):
 
 
 @router.post("/notifications")
-def create_notification(body: CreateNotificationInput, _user_id: str = CurrentUserId):
-    return store.create_notification(body)
+def create_notification(_user_id: str = CurrentUserId):
+    raise api_error("API_006", "You do not have permission for this action.", 403, "Notifications are server-only.")
 
 
 @router.post("/notifications/{notification_id}/read", status_code=204)

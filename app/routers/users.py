@@ -2,7 +2,7 @@ from fastapi import APIRouter, Response
 
 from app.auth import CurrentUserId
 from app.errors import api_error
-from app.models import UpdateProfileInput
+from app.models import ConsentInput, PushTokenInput, UpdateProfileInput
 from app.store import store
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -18,6 +18,11 @@ def update_profile(body: UpdateProfileInput, _user_id: str = CurrentUserId):
     return store.update_profile(body)
 
 
+@router.patch("/me/push-token")
+def update_push_token(body: PushTokenInput, _user_id: str = CurrentUserId):
+    return store.update_push_token(body.token)
+
+
 @router.post("/me/verify")
 def request_verification(_user_id: str = CurrentUserId):
     return store.request_verification()
@@ -26,6 +31,21 @@ def request_verification(_user_id: str = CurrentUserId):
 @router.post("/me/boost")
 def boost_profile(_user_id: str = CurrentUserId):
     return store.boost_profile()
+
+
+@router.post("/me/consents")
+def record_consent(body: ConsentInput, _user_id: str = CurrentUserId):
+    return store.record_consent(body.type, body.version)
+
+
+@router.post("/me/data-export")
+def request_data_export(_user_id: str = CurrentUserId):
+    return store.request_data_export()
+
+
+@router.get("/me/data-export/{request_id}")
+def get_data_export_status(request_id: str, _user_id: str = CurrentUserId):
+    return store.get_data_export_status(request_id)
 
 
 @router.get("/nearby")
@@ -52,8 +72,8 @@ def get_user(user_id: str, _user_id: str = CurrentUserId):
 
 
 @router.post("/{profile_user_id}/views", status_code=204)
-def record_profile_view(profile_user_id: str, body: dict, _user_id: str = CurrentUserId):
-    store.record_profile_view(body.get("viewerId", _user_id), profile_user_id)
+def record_profile_view(profile_user_id: str, _user_id: str = CurrentUserId):
+    store.record_profile_view(_user_id, profile_user_id)
     return Response(status_code=204)
 
 

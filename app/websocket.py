@@ -9,6 +9,13 @@ from starlette.websockets import WebSocketDisconnect
 from app.auth import decode_token
 from app.models import Message, new_id
 from app.store import store
+from app.ws_tickets import resolve_ws_ticket
+
+MAX_WS_MESSAGE_BYTES = 65536
+
+
+def _is_conversation_member(user_id: str, conversation_id: str) -> bool:
+    return user_id in store.conversation_participant_ids(conversation_id)
 
 
 class ChatConnectionManager:
@@ -33,6 +40,9 @@ class ChatConnectionManager:
         try:
             while True:
                 raw = await websocket.receive_text()
+                if len(raw.encode("utf-8")) > MAX_WS_MESSAGE_BYTES:
+                    await websocket.send_json({"type": "error", "code": "MSG_TOO_LARGE", "message": "Message too large."})
+                    continue
                 event = json.loads(raw)
                 await self._handle_event(websocket, user_id, event)
         except WebSocketDisconnect:
@@ -45,46 +55,62 @@ class ChatConnectionManager:
             await websocket.send_json({"type": "pong"})
             return
         if event_type == "message.send":
+            conversation_id = event.get("conversationId")
+            if not conversation_id or not _is_conversation_member(user_id, conversation_id):
+                await websocket.send_json({"type": "error", "code": "FORBIDDEN", "message": "Not a conversation member."})
+                return
             await self._handle_send(user_id, event)
             return
         if event_type == "typing.start":
+            conversation_id = event.get("conversationId")
+            if not conversation_id or not _is_conversation_member(user_id, conversation_id):
+                return
             await self._broadcast_to_conversation(
-                event["conversationId"],
-                {"type": "typing.start", "conversationId": event["conversationId"], "userId": user_id},
+                conversation_id,
+                {"type": "typing.start", "conversationId": conversation_id, "userId": user_id},
                 exclude=user_id,
             )
             return
         if event_type == "typing.stop":
+            conversation_id = event.get("conversationId")
+            if not conversation_id or not _is_conversation_member(user_id, conversation_id):
+                return
             await self._broadcast_to_conversation(
-                event["conversationId"],
-                {"type": "typing.stop", "conversationId": event["conversationId"], "userId": user_id},
+                conversation_id,
+                {"type": "typing.stop", "conversationId": conversation_id, "userId": user_id},
                 exclude=user_id,
             )
             return
         if event_type == "message.read":
-            store.mark_conversation_read(event["conversationId"])
+            conversation_id = event.get("conversationId")
+            if not conversation_id or not _is_conversation_member(user_id, conversation_id):
+                return
+            store.mark_conversation_read(conversation_id)
             await self._broadcast_to_conversation(
-                event["conversationId"],
+                conversation_id,
                 {
                     "type": "message.read",
-                    "conversationId": event["conversationId"],
+                    "conversationId": conversation_id,
                     "messageId": event["messageId"],
                     "readBy": user_id,
                 },
             )
             return
         if event_type == "message.viewed":
+            conversation_id = event.get("conversationId")
+            if not conversation_id or not _is_conversation_member(user_id, conversation_id):
+                return
             viewed_at = datetime.now(timezone.utc).isoformat()
             updated = store.mark_message_viewed(event["messageId"], viewed_at)
             if updated:
                 payload = {
                     "type": "message.viewed",
-                    "conversationId": event["conversationId"],
+                    "conversationId": conversation_id,
                     "messageId": event["messageId"],
                     "viewedAt": updated.viewedAt or viewed_at,
                     "viewedBy": user_id,
                 }
-                await self._broadcast_to_conversation(event["conversationId"], payload)
+                await self._broadcast_to_conversation(conversation_id, payload)
             return
 
     async def _handle_send(self, user_id: str, event: dict) -> None:
@@ -141,13 +167,16 @@ class ChatConnectionManager:
 chat_manager = ChatConnectionManager()
 
 
-async def chat_websocket(websocket: WebSocket, token: str | None) -> None:
-    if not token:
-        await websocket.close(code=4001)
-        return
-    try:
-        user_id = decode_token(token).sub
-    except Exception:
+async def chat_websocket(websocket: WebSocket, token: str | None, ticket: str | None) -> None:
+    user_id: str | None = None
+    if ticket:
+        user_id = resolve_ws_ticket(ticket)
+    elif token:
+        try:
+            user_id = decode_token(token).sub
+        except Exception:
+            user_id = None
+    if not user_id:
         await websocket.close(code=4001)
         return
     await chat_manager.connect(websocket, user_id)
