@@ -78,6 +78,10 @@ class PushTokenInput(BaseModel):
     token: str
 
 
+class WsTicketResponse(BaseModel):
+    ticket: str
+
+
 class Message(BaseModel):
     id: str
     conversationId: str

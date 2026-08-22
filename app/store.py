@@ -256,8 +256,8 @@ class DataStore:
             "createdAt": datetime.now(timezone.utc).isoformat(),
         }
         self.user_audit_logs.insert(0, entry)
-        if len(self.user_audit_logs) > USER_AUDIT_LOG_CAP:
-            self.user_audit_logs = self.user_audit_logs[:USER_AUDIT_LOG_CAP]
+        if len(self.user_audit_logs) > AUDIT_LOG_MAX_ENTRIES:
+            self.user_audit_logs = self.user_audit_logs[:AUDIT_LOG_MAX_ENTRIES]
 
     def _log_admin_action(
         self,
@@ -958,6 +958,17 @@ class DataStore:
         self.track_touch_event(
             TrackTouchEventInput(type="profile_like", actorUserId=from_user_id, targetUserId=to_user_id, screen="user_profile")
         )
+        if to_user_id != from_user_id:
+            from app.push_dispatch import dispatch_profile_push
+
+            actor = self.users.get(from_user_id)
+            dispatch_profile_push(
+                to_user_id,
+                title=actor.displayName if actor else "Someone",
+                body="Liked your profile",
+                user_id=from_user_id,
+                push_type="like",
+            )
 
     def unlike_profile(self, from_user_id: str, to_user_id: str) -> None:
         self.profile_likes = [l for l in self.profile_likes if not (l.from_user_id == from_user_id and l.to_user_id == to_user_id)]
@@ -974,6 +985,16 @@ class DataStore:
             self._raise_if_blocked(from_user_id)
         self.track_touch_event(
             TrackTouchEventInput(type="profile_tap", actorUserId=from_user_id, targetUserId=to_user_id, screen="user_profile")
+        )
+        from app.push_dispatch import dispatch_profile_push
+
+        actor = self.users.get(from_user_id)
+        dispatch_profile_push(
+            to_user_id,
+            title=actor.displayName if actor else "Someone",
+            body="Tapped your profile",
+            user_id=from_user_id,
+            push_type="tap",
         )
 
     def has_liked_profile(self, from_user_id: str, to_user_id: str) -> bool:

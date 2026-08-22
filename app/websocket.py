@@ -10,6 +10,7 @@ from app.auth import decode_token
 from app.errors import ApiError
 from app.models import Message, new_id
 from app.store import store
+from app.push_dispatch import dispatch_message_push
 from app.ws_tickets import resolve_ws_ticket
 
 MAX_WS_MESSAGE_BYTES = 65536
@@ -155,6 +156,12 @@ class ChatConnectionManager:
             conversation_id,
             {"type": "message.new", "message": delivered.model_dump()},
         )
+        sender = store.users.get(user_id)
+        sender_name = sender.displayName if sender else "Someone"
+        for participant_id in store.conversation_participant_ids(conversation_id):
+            if participant_id == user_id:
+                continue
+            dispatch_message_push(participant_id, sender_name, conversation_id)
 
     async def _send_to_user(self, user_id: str, payload: dict) -> None:
         for ws in list(self.connections.get(user_id, set())):
